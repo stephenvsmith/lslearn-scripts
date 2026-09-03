@@ -1,0 +1,27 @@
+# Personal configuration
+config/config.R
+
+# bnlearn network files (downloaded separately, see README)
+networks/rds/*.rds
+!networks/rds/.gitkeep
+
+# R
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rout
+*.Rcheck/
+
+# Simulation output
+logs*/
+rw_logs/
+*.rds
+sim_vals.csv
+completed_*.txt
+in_process_sims.txt
+simulation_report.txt
+
+# OS
+.DS_Store

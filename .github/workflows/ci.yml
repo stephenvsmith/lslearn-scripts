@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: error
+          ignore_paths: >-
+            hoffman/submit/legacy
+        env:
+          SHELLCHECK_OPTS: --exclude=SC1091
+
+  r-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install lint/style dependencies
+        run: install.packages(c("lintr", "styler"))
+        shell: Rscript {0}
+
+      - name: Check every R file parses
+        run: |
+          files <- list.files(".", pattern = "\\.R$", recursive = TRUE, full.names = TRUE)
+          bad <- Filter(function(f) inherits(tryCatch(parse(f), error = function(e) e), "error"), files)
+          if (length(bad) > 0) {
+            cat("Failed to parse:\n"); print(bad)
+            quit(status = 1)
+          }
+        shell: Rscript {0}
+
+      - name: styler (dry run)
+        run: |
+          changed <- styler::style_dir(".", dry = "on", filetype = "R")
+          if (any(changed$changed)) {
+            cat("The following files are not styled; run styler::style_dir('.'):\n")
+            print(changed$file[changed$changed])
+            quit(status = 1)
+          }
+        shell: Rscript {0}
+
+      - name: lintr
+        run: |
+          lints <- lintr::lint_dir(".")
+          print(lints)
+          if (length(lints) > 0) quit(status = 1)
+        shell: Rscript {0}
