@@ -20,6 +20,3 @@ repos:
     rev: v0.4.3
     hooks:
       - id: parsable-R
-      - id: style-files
-        args: [--style_pkg=styler, --style_fun=tidyverse_style]
-      - id: lintr

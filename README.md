@@ -130,14 +130,17 @@ results.
 
 ## Development
 
-Pre-commit hooks (shell lint via shellcheck, R style/lint/parse checks, and
-general whitespace/YAML hygiene) are configured in
-[.pre-commit-config.yaml](.pre-commit-config.yaml):
+Pre-commit hooks (shellcheck, an R parse check, and general whitespace/YAML
+hygiene) are configured in [.pre-commit-config.yaml](.pre-commit-config.yaml):
 
 ```sh
 pip install pre-commit
 pre-commit install
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same shellcheck and R checks on
-every push and pull request.
+CI (`.github/workflows/ci.yml`) runs the same shellcheck and R parse check —
+both block the build. It also runs `styler` and `lintr` for feedback, but
+these are advisory-only (they report, they don't fail CI): these scripts
+were carried over from an existing reproducibility repo, so reformatting
+every file to tidyverse style isn't worth the churn — the parse check is
+the real correctness gate.
