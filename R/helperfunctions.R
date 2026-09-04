@@ -629,9 +629,16 @@ additional_metrics <- function(graphs,local_result,pc_result,
     mb_time <- get_total_mb_time(local_result$mbList)
     mb_tests <- get_total_mb_tests(local_result$mbList)
 
-    ### Statistics for the amount of times each FCI rule was used
+    ### Statistics for the amount of times each FCI rule was used. Sized
+    # dynamically rather than hardcoded to 11 (rule0..rule10): lslearn's
+    # RulesUsed is a 12-element vector (CML.h's rules_used), one more than
+    # the old CML package's 11 -- the extra slot is almost certainly a count
+    # for rule R_N, the paper's own within-neighborhood circle-mark
+    # simplification rule (Algorithm 1, line 16), which the old package
+    # apparently didn't expose. Deriving the column count avoids silently
+    # mis-labeling (or crashing on) columns if this changes again upstream.
     rule_usage <- t(data.frame(local_result$RulesUsed))
-    dimnames(rule_usage) <- list(NULL,paste0("rule",0:10))
+    dimnames(rule_usage) <- list(NULL,paste0("rule",seq_len(ncol(rule_usage))-1))
 
     ### Combine results so far
     results <- cbind(nbhd_metrics,mb_metrics,mb_metrics_add,

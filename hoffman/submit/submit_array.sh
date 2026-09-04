@@ -18,12 +18,19 @@ echo "Job $JOB_ID.$SGE_TASK_ID started on:   " $(date)
 echo " "
 
 # load the job environment:
+# R/4.0.2 (the version these scripts previously used) is too old -- lslearn
+# requires R >= 4.4. Confirm exact current module names/versions with
+# `module av R`, `module av gcc`, and `module av gsl` before your first run;
+# the versions below are placeholders. gsl is required to build/load
+# lslearn's compiled code (RcppArmadillo).
 . /u/local/Modules/default/init/modules.sh
-module load R/4.0.2
+module load R/4.4.0
 module load gcc/11.3.0
+module load gsl
 
-# This repository is expected to live at $SCRATCH/lslearn-scripts
-REPO_DIR="${SCRATCH}/lslearn-scripts"
+# Code belongs in $HOME (persistent, backed up), not $SCRATCH (purged after
+# 14 days) -- see hoffman/README.md.
+REPO_DIR="${HOME}/lslearn-scripts"
 
 echo "Rscript ${REPO_DIR}/hoffman/run_array.R ${SGE_TASK_ID} ${REPO_DIR}"
 Rscript "${REPO_DIR}/hoffman/run_array.R" "${SGE_TASK_ID}" "${REPO_DIR}"
