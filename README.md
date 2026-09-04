@@ -59,36 +59,37 @@ for CML so the "total CI tests" comparison across CML/SNL/PC (Figures 3a,
 paper had to make in Section 4.1 ("we were unable to obtain these values"
 for Mb test counts) — `MBNumTests` is now available directly.
 
-**Not yet resolved — blocks fresh data generation:** `R/data_gen.R` builds
-its network/edge representation entirely on `sparsebnUtils`
-(`edgeList`/`get.adjacency.matrix`/`to_igraph`/`as.sparse`/`to_edgeList`)
-plus `discretecdAlgorithm` for the (currently unused) discrete-data branch.
-**Both packages were archived by CRAN on 2024-04-12** and no longer install
-via `install.packages()` — `sparsebnUtils` for unfixed issues, and
+**Resolved — `sparsebnUtils`/`discretecdAlgorithm` removed:** `R/data_gen.R`
+used to build its network/edge representation entirely on `sparsebnUtils`
+(`edgeList`/`get.adjacency.matrix`/`to_igraph`/`as.sparse`/`to_edgeList`),
+plus `discretecdAlgorithm` for the discrete-data branch. **Both packages
+were archived by CRAN on 2024-04-12** and no longer install via
+`install.packages()` — `sparsebnUtils` for unfixed issues, and
 `discretecdAlgorithm` because it requires `sparsebnUtils`. This is almost
 certainly why `lslearn` itself only depends on `bnlearn`/`MXM`/`Rcpp`/
-`RcppArmadillo` now. As written, `data_gen.R` cannot generate simulation
-data on a machine that doesn't already have these two packages installed
-from an old source (e.g. the CRAN archive, or a cached local library) — this
-is the actual blocker to a from-scratch reproduction, independent of
-anything above. Two ways forward, in rough order of effort:
-1. Pin the archived versions (e.g. `remotes::install_version("sparsebnUtils", "0.1.2")`
-   from the CRAN archive) as a stopgap — lowest effort, but not a durable fix.
-2. Rewrite `data_gen.R`'s graph plumbing on packages that remain available
-   (`bnlearn` — already a dependency — plus `igraph`, which is still
-   maintained and was the only non-archived package `sparsebnUtils` wrapped
-   for these calls). The `sparsebnUtils` calls here don't do anything
-   `bnlearn`/`igraph` can't: `edgeList`/`get.adjacency.matrix` is just a
-   parent-index list ↔ adjacency-matrix conversion, `to_igraph`/`to_edgeList`
-   round-trip through `igraph::graph_from_adjacency_matrix()`, and
-   `as.sparse()` is only used internally to attach randomly-generated
-   coefficients to edges in a self-consistent order — none of that requires
-   matching `sparsebnUtils`'s exact internal representation, just a fixed
-   convention on the R side.
+`RcppArmadillo` now.
 
-This hasn't been attempted here — it's a substantive rewrite of the data
-generation core, not a mechanical fix like the shims above, and is worth a
-design conversation before touching it.
+`data_gen.R` no longer references either package for the continuous/Gaussian
+path — the only path this paper's published results use (see Scope, above).
+Its `sparsebnUtils` calls didn't do anything `bnlearn`/`igraph` can't:
+`edgeList`/`get.adjacency.matrix` was just a parent-index-list ↔
+adjacency-matrix conversion (now `edgelist_to_adjmat()`/`adjmat_to_edgelist()`
+in `data_gen.R`'s "Graph Utilities" section), and `as.sparse()` was only used
+internally to attach randomly-generated coefficients to edges in a
+self-consistent order (now `edgelist_to_weighted()`) — none of that requires
+matching `sparsebnUtils`'s exact internal representation, just a fixed
+convention on the R side, which these replacements define and use
+consistently. `igraph` (still maintained) replaces the one remaining
+graph-library need, a topological sort in `generate_dat()`.
+
+The discrete-data branch (`data.row$data.type == 'discrete'`) is **not**
+reimplemented — it was never exercised for this paper's published results
+(the simulation study is entirely continuous/Gaussian; `data.type` is
+hardcoded to `"continuous"` in `run/arraykernel.R`), and it now raises a
+clear `stop()` explaining why, rather than silently depending on an
+uninstallable package. Reimplementing discrete data generation (CPT
+generation + ancestral sampling for a discrete DAG) natively is future work
+if a later paper revision needs it.
 
 ## Notation
 
@@ -127,12 +128,12 @@ analysis/   Scripts for compiling and plotting results after a batch of
 
 1. Install R 4.4+, a C++ compiler toolchain, and the GNU Scientific Library
    (GSL) — required by `lslearn`. Then install the required packages:
-   `tidyverse`, `bnlearn`, `pcalg`, `parallel`, and
+   `tidyverse`, `bnlearn`, `igraph`, `gRbase`, `pcalg`, `parallel`, and
    [`lslearn`](https://github.com/stephenvsmith/lslearn) itself (not yet on
-   CRAN — install with `pak::pak("stephenvsmith/lslearn")`). Also required
-   for `R/data_gen.R`, but **archived and no longer `install.packages()`-able**
-   — see [Compatibility with `lslearn`](#compatibility-with-lslearn) —
-   `sparsebnUtils` and `discretecdAlgorithm`.
+   CRAN — install with `pak::pak("stephenvsmith/lslearn")`). (`gRbase` is
+   only needed for the `c.ratio > 0` multi-network-fusion path in
+   `R/data_gen.R`, unused by the paper's own settings grid, but it's a live
+   dependency of that code path.)
 2. Download the 13 `bnlearn` reference networks used in the paper —
    `alarm`, `barley`, `insurance`, `arth150`, `andes`, `diabetes`, `link`,
    `mildew`, `hepar2`, `pigs`, `munin2`, `munin3`, `munin4` — from the

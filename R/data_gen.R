@@ -1,6 +1,9 @@
 ############ Data Generation ############
 
-# This code was given by a colleague
+# This code was given by a colleague, and later reworked to drop its
+# dependency on sparsebnUtils/discretecdAlgorithm (both archived by CRAN on
+# 2024-04-12) in favor of bnlearn + igraph, which remain maintained. See
+# "Graph Utilities" below for the replacement functions.
 
 generate.data.grid <- function(data.grid = data.frame(network = "child",
                                                       data.type = "continuous",
@@ -47,11 +50,11 @@ generate.data.grid <- function(data.grid = data.frame(network = "child",
                              net.dir = rds_dir,
                              path.start=path.start,var_list=var_list)
     true_edgeList <- true$edgeList
-    trueDAG <- as.matrix(sparsebnUtils::get.adjacency.matrix(true_edgeList))
+    trueDAG <- edgelist_to_adjmat(true_edgeList)
     trueCPDAG <- pcalg::dag2cpdag(trueDAG)
     trueGroup <- true$group
-    n.edge <- sparsebnUtils::num.edges(true_edgeList)
-    n.node <- sparsebnUtils::num.nodes(true_edgeList)
+    n.edge <- sum(lengths(true_edgeList))
+    n.node <- length(true_edgeList)
 
     ## generate order matrix
     set.seed(i)
@@ -85,41 +88,21 @@ generate.data.grid <- function(data.grid = data.frame(network = "child",
         write.txt(dat, paste0('data', j))
       }  # end for
     } else if (data.row$data.type == 'discrete'){
-
-      if (any(is.na(c(data.row$low, data.row$high))) || any(c(data.row$low, data.row$high) < 0)){  # use true levels
-        cat(sprintf('generate.data.grid: Using true number of levels ranging from %s to %s \n',
-                    min(true$n.levels), max(true$n.levels)))
-        N_LEVELS <- lapply(1:data.row$n.dat, function(x) true$n.levels)
-      } else{
-        low <- data.grid[i,]$low <- data.row$low <- max(floor(data.row$low), 2)
-        high <- data.grid[i,]$high <- data.row$high <- max(floor(data.row$high), floor(data.row$low))
-        cat(sprintf('generate.data.grid: Generating number of levels ranging from %s to %s \n',
-                    low, high))
-        N_LEVELS <- lapply(1:data.row$n.dat, function(x){
-          sample(rep(low:high, 2), size = n.node, replace = TRUE)
-        })
-      }
-
-      params.list <- lapply(1:data.row$n.dat, function(x){
-        coefs <- discretecdAlgorithm::coef_gen(true_edgeList, n_levels = N_LEVELS[[x]],
-                                               FUN = function(n) runif(n, min=data.row$lb, max=data.row$ub))
-        return(coefs)
-      })
-      saveRDS(params.list, paste0(data.dir, '/params.list.rds'))
-
-      for (j in 1:data.row$n.dat){
-
-        set.seed(j)
-        while (T){
-          dat <- discretecdAlgorithm::generate_discrete_data(graph = true_edgeList, params = params.list[[j]], n = data.row$n.obs, n_levels = N_LEVELS[[j]])
-          if (verbose) cat(sprintf('generate.data.grid: Dataset %s has %s/%s variables with only one level \n',
-                                   j, sum(sapply(data.frame(dat), sd) == 0), n.node))
-          if (sum(sapply(data.frame(dat), sd) == 0) == 0){
-            break
-          }
-        }
-        write.txt(dat, paste0('data', j))
-      }  # end for
+      # Discrete data generation previously used discretecdAlgorithm::coef_gen()
+      # and ::generate_discrete_data(), but that package (and its hard
+      # dependency, sparsebnUtils) was archived by CRAN on 2024-04-12 and is
+      # no longer installable. This branch was never exercised for this
+      # paper's published results (the simulation study is entirely
+      # continuous/Gaussian; see run/arraykernel.R), so it hasn't been
+      # reimplemented -- doing so natively (CPT generation + ancestral
+      # sampling for a discrete DAG) is a separate, self-contained piece of
+      # work deserving its own testing. See README.md's "Compatibility with
+      # lslearn" section.
+      stop(paste(
+        'generate.data.grid: discrete data generation is not currently',
+        'implemented (discretecdAlgorithm was archived by CRAN; see the',
+        'comment above this stop() in R/data_gen.R).'
+      ))
     }  # end discrete
   }
 }
@@ -152,11 +135,82 @@ bn.repository <- function(bn.net,  # character scalar of
 }
 
 
+#	Function: edgelist_to_adjmat / adjmat_to_edgelist / edgelist_to_weighted
+#
+#	Description:
+#
+#		Replacements for the sparsebnUtils functionality this file used to
+#		depend on (get.adjacency.matrix, to_edgeList, as.sparse). An
+#		"edgeList" throughout this file is simply a plain list of length p
+#		(one element per node), where element `child` is an integer vector
+#		of `child`'s parent node indices -- exactly the list sparsebnUtils'
+#		own edgeList() constructor wrapped in an S3 class; no class is
+#		needed here since these functions operate on the plain list
+#		directly instead of dispatching on it.
+#
+#	Arguments:
+#
+#		edgelist - A plain edgeList as described above.
+#		adjmat   - A p x p 0/1 adjacency matrix, adjmat[parent, child] == 1.
+#		coefs    - A flat numeric vector of edge coefficients, one per edge,
+#		           ordered by iterating child 1..p and, within each child,
+#		           its parents in the order stored in edgelist[[child]].
+#		           (Consumers only need to agree with generate.data.grid()'s
+#		           own draw order, which uses this same convention, not with
+#		           any external package's edge ordering.)
+#		node_name - Character vector of node names.
+#
+#	Returns:
+#
+#		edgelist_to_adjmat   - the p x p 0/1 adjacency matrix.
+#		adjmat_to_edgelist   - a plain edgeList (see above).
+#		edgelist_to_weighted - a named list, one element per node, each a
+#		                       list(parents, index, weights) for that node's
+#		                       incoming edges.
+
+edgelist_to_adjmat <- function(edgelist){
+  p <- length(edgelist)
+  adj <- matrix(0, nrow = p, ncol = p)
+  for (child in seq_len(p)){
+    parents <- edgelist[[child]]
+    if (length(parents) > 0) adj[parents, child] <- 1
+  }
+  if (!is.null(names(edgelist))) dimnames(adj) <- list(names(edgelist), names(edgelist))
+  adj
+}
+
+adjmat_to_edgelist <- function(adjmat){
+  p <- ncol(adjmat)
+  out <- lapply(seq_len(p), function(child) which(adjmat[, child] == 1))
+  if (!is.null(colnames(adjmat))) names(out) <- colnames(adjmat)
+  out
+}
+
+edgelist_to_weighted <- function(edgelist, coefs, node_name){
+  p <- length(edgelist)
+  out <- vector("list", p)
+  names(out) <- node_name
+  pos <- 1
+  for (child in seq_len(p)){
+    parents <- edgelist[[child]]
+    n_parent <- length(parents)
+    if (n_parent > 0){
+      weights <- coefs[pos:(pos + n_parent - 1)]
+      pos <- pos + n_parent
+      out[[child]] <- list(parents = node_name[parents], index = parents, weights = weights)
+    } else {
+      out[[child]] <- list(parents = character(0), index = integer(0), weights = numeric(0))
+    }
+  }
+  out
+}
+
+
 #	Function: bnlearn2edgeList
 #
 #	Description:
 #
-#		Creates edgeList (sparsebnUtils) object, by connecting networks if desired, from the bnlearn Bayesian network repository.
+#		Creates a plain edgeList (see "Graph Utilities" above), by connecting networks if desired, from the bnlearn Bayesian network repository.
 #
 #	Arguments:
 #
@@ -170,7 +224,7 @@ bn.repository <- function(bn.net,  # character scalar of
 #
 #		List containing:
 #
-#       edgeList - Fused sparsebn edgeList object.
+#       edgeList - Fused plain edgeList (see "Graph Utilities" above).
 #       group - True group of each node.
 #       n.edges - Numeric vector containing number of edges within subgraphs (s_w) and number of edges between subgraphs (s_b).
 #       n.parents - Number of parents for each node.
@@ -179,10 +233,10 @@ bn.repository <- function(bn.net,  # character scalar of
 #	Examples:
 #
 #   > pigs <- bnlearn2edgeList(bn.net = "pigs")
-#   > plot(pigs$edgeList)
+#   > edgelist_to_adjmat(pigs$edgeList)
 #		> mix <- bnlearn2edgeList(bn.net = c("pigs", "pathfinder", "hailfinder"),
 #                            c.ratio = 0.1)
-#   > plot(mix$edgeList)
+#   > edgelist_to_adjmat(mix$edgeList)
 
 bnlearn2edgeList <- function(bn.net,
                              c.ratio = 0,
@@ -202,7 +256,7 @@ bnlearn2edgeList <- function(bn.net,
 
   bn.net.list <- lapply(bn.net, function(x){
     bn <- readRDS(sprintf(paste0(net.dir, "/%s.rds"), tolower(x)))
-    sparsebnUtils::edgeList(lapply(bn, function(x) match(x$parents, names(bn))))  # get edge list
+    lapply(bn, function(x) match(x$parents, names(bn)))  # plain edgeList (see "Graph Utilities")
   })
 
   n.net <- length(bn.net)
@@ -233,7 +287,7 @@ bnlearn2edgeList <- function(bn.net,
                                   y + sum(net.len[1:x]) - net.len[x]))
       )  # end do.call
       names(net.edgeList) <- paste0("V", 1:length(net.edgeList))
-      net.adjMat <- as.matrix(sparsebnUtils::get.adjacency.matrix(sparsebnUtils::edgeList(net.edgeList)))  # store as adjacency matrix
+      net.adjMat <- edgelist_to_adjmat(net.edgeList)  # store as adjacency matrix
       valid.child <- which(colSums(net.adjMat) < max.parents)  # valid children to search have fewer than maximum parents
 
       ## generate all possible edges between
@@ -264,7 +318,7 @@ bnlearn2edgeList <- function(bn.net,
           cat(sprintf('bnlearn2edgeList: Successfully added %s edges \n', i))
         }
       }
-      net.edgeList <- sparsebnUtils::to_edgeList(igraph::graph_from_adjacency_matrix(net.adjMat))
+      net.edgeList <- adjmat_to_edgelist(net.adjMat)
     }  # end while
   } else n.btwn <- 0
 
@@ -285,47 +339,12 @@ bnlearn2edgeList <- function(bn.net,
   # get number of parents per node
   n.parents <- sapply(net.edgeList, length)
 
-  out <- list(edgeList = sparsebnUtils::edgeList(net.edgeList),
+  out <- list(edgeList = net.edgeList,
               group = group,
               n.edges = c(s_w = length(unlist(net.edgeList)) - n.btwn, s_b = n.btwn),
               n.levels = n.levels,
               n.parents = n.parents,
               seed = seed)
-
-  return(out)
-}
-
-
-#	Function: sparse_to_edgeWeightList
-#
-#	Description:
-#
-#		Converts a sparse object to an parent edge weight list.
-#
-#	Arguments:
-#
-#		x - sparsebnUtils sparse object.
-#   nodes - Names of the nodes.
-#
-#	Returns:
-#
-#		out - Parent edge weight list. Each named element contains parents, indices, and weights.
-
-sparse_to_edgeWeightList <- function(x, nodes) {
-  stopifnot(sparsebnUtils::is.sparse((x)))
-  stopifnot(x$dim[1] == x$dim[2])
-
-  out <- lapply(vector("list", length = x$dim[1]), function(z) list(parents = character(0), index = integer(0), weights = numeric(0)))
-  names(out) <- nodes
-  for(j in seq_along(x$cols)){
-    child <- x$cols[[j]]
-    parent <- x$rows[[j]]
-    weight <- x$vals[[j]]
-    parents <- c(out[[child]]$parents, nodes[parent])
-    index <- c(out[[child]]$index, parent)
-    weights <- c(out[[child]]$weights, weight)
-    out[[nodes[child]]] <- list(parents = parents, index = index, weights = weights)
-  }
 
   return(out)
 }
@@ -351,28 +370,19 @@ sparse_to_edgeWeightList <- function(x, nodes) {
 
 generate_dat <- function(true_edgeList, params, noise_matrix, n_obs, if_scale = FALSE) {
   node_name <- names(true_edgeList)
-  true_graph <- sparsebnUtils::to_igraph(true_edgeList)
-  if (is.null(node_name)) {
-    ts <- igraph::topo_sort(true_graph)
-  } else {
-    ts <- match(names(igraph::topo_sort(true_graph)), node_name)
-  }
   n_node <- length(true_edgeList)
+
+  # Topological order. Vertex indices from graph_from_adjacency_matrix()
+  # correspond directly to true_edgeList's own 1..n_node indexing (no name
+  # matching needed, unlike the old sparsebnUtils::to_igraph() round-trip).
+  adjmat <- edgelist_to_adjmat(true_edgeList)
+  true_graph <- igraph::graph_from_adjacency_matrix(adjmat, mode = "directed")
+  ts <- as.integer(igraph::topo_sort(true_graph))
 
   vars <- utils::tail(params, n_node) # parameters associated with variances
   names(vars) <- node_name
   coefs <- params[1:(length(params) - n_node)] # parameters associated with edge weights
-  sp <- sparsebnUtils::as.sparse(true_edgeList)
-  sp$vals <- coefs # previous line leaves NAs for values in sparse object; need to fill these in
-  edgelist <- sparse_to_edgeWeightList(sp, node_name)
-
-  my_adj <- matrix(0,nrow = n_node,ncol = n_node)
-  for (i in 1:length(edgelist)){
-    ll <- edgelist[[i]]
-    ind <- ll$index
-    ws <- ll$weights
-    my_adj[ind,i] <- ws
-  }
+  edgelist <- edgelist_to_weighted(true_edgeList, coefs, node_name)
 
   data_matrix <- matrix(0, nrow = n_obs, ncol = n_node)
   for(i in 1:n_node) {
