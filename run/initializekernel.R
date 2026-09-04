@@ -9,7 +9,7 @@ net <- c("alarm","barley","insurance","arth150","andes","diabetes",
 high <- c(0.25) # For variances
 ub <- c(0.75) # For coefficients
 n <- c(500,1000,10000)
-algos <- c("MMPC","SES")
+algos <- c("MMPC")
 
 # Create a table with every combination of simulation settings
 simulation_values <- expand.grid(alpha=alpha,mb_alpha=mb_alpha,net=net,
