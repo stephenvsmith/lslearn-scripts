@@ -318,12 +318,20 @@ run_cml <- function(t,df,num,results_pc,algo){
   diff <- end - start
   units(diff) <- "secs"
   results_pc$time_diff[["CML"]] <- diff
-  # lslearn's cml() reports skeleton tests (NumTests) and Markov Blanket
-  # estimation tests (MBNumTests) separately; snl()'s NumTests already
-  # includes its MB tests. Sum both here so cml/snl/pc are compared on the
-  # same "total CI tests used" basis (the old CML package couldn't
-  # separate these out, hence the caveat in the paper's Section 4.1).
-  results_pc$num_tests[["CML"]] <- cml_result$NumTests + cml_result$MBNumTests
+  # NumTests is skeleton tests only, matching the paper's existing basis for
+  # this figure (Section 4.1: local-algorithm test counts exclude Mb
+  # estimation). Do NOT add cml_result$MBNumTests here: lslearn's own
+  # construct_final_mb_list() (R/mb-estimation.R) marks that computation
+  # "# NEED TO FIX" -- it undercounts whenever a spouse is promoted to a
+  # first-order neighbor, since the additional get_mb() call this triggers
+  # (in augment_mb_algo()) runs after MBNumTests has already been totaled.
+  # additional_metrics()'s totalMBTests column (get_total_mb_tests() over
+  # the final, fully-merged mbList) is a more complete count -- it does pick
+  # up those extra get_mb() calls -- but still omits the spouse-detection
+  # tests themselves, so treat it as a lower bound, not authoritative
+  # either. Report both separately rather than trusting either into a
+  # single combined total.
+  results_pc$num_tests[["CML"]] <- cml_result$NumTests
   check_anc_edge_markings(cml_result$amat,
                           paste0(result_dir,"/anc_edge_errors.txt"),
                           array_num)
@@ -453,6 +461,15 @@ mb_recovery_metrics <- function(ref, est, targets){
 
 # Was getTotalMBTime()/getTotalMBTests(): operate on a cml()/snl() `mbList`,
 # a named list of get_mb()-style results each holding $time and $n_tests.
+# NOTE on reliability: this sums n_tests/time over the FINAL, fully-merged
+# mbList (which does include nodes promoted from second- to first-order
+# neighbor status via spouse detection), so it's more complete than
+# cml_result$MBNumTests (see the long comment in run_cml(), above -- that
+# figure is computed earlier in lslearn's pipeline and misses exactly those
+# promoted nodes' own get_mb() calls). Still, this omits the spouse-
+# detection CI tests themselves (capture_spouses() in lslearn), which aren't
+# attached to any single node's mbList entry -- so totalMBTests/totalMBEstTime
+# below are a lower bound on true Mb-estimation cost, not an exact count.
 get_total_mb_time <- function(mb_list){
   sum(sapply(mb_list, function(mb) mb[["time"]]))
 }

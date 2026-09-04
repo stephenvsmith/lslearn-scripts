@@ -51,13 +51,25 @@ removed outright; `mbRecovery`, `mbRecoveryMetrics`, `getTotalMBTime`,
 was removed). `helperfunctions.R`'s "lslearn Compatibility Shims" section
 ports these faithfully from `lslearn`'s own (unexported) source, and
 `get_nbhds()` now uses this file's own `find_all_neighbors()` instead of the
-removed C++ export. Also fixed: `lslearn::cml()` now separates skeleton CI
-tests (`NumTests`) from Markov Blanket estimation tests (`MBNumTests`),
-where `snl()`'s `NumTests` already includes both — `run_cml()` now sums them
-for CML so the "total CI tests" comparison across CML/SNL/PC (Figures 3a,
-7a) is on the same basis for all three. This also resolves a caveat the
-paper had to make in Section 4.1 ("we were unable to obtain these values"
-for Mb test counts) — `MBNumTests` is now available directly.
+removed C++ export.
+
+**Markov Blanket test counts remain unreliable — do not trust them into a
+combined total.** `lslearn::cml()` reports Mb estimation test counts
+separately (`MBNumTests`), which looked like an opportunity to resolve the
+paper's Section 4.1 caveat about being unable to obtain these values for the
+local algorithms. It isn't: `lslearn`'s own
+`construct_final_mb_list()` (`R/mb-estimation.R`) computes `MBNumTests` with
+a line literally marked `# NEED TO FIX` in its source, and it visibly
+undercounts — the extra `get_mb()` calls `augment_mb_algo()` runs for nodes
+promoted from second- to first-order neighbor status via spouse detection
+happen *after* that total is already computed, so their tests never get
+counted. `run_cml()` does **not** add `MBNumTests` into CML's reported test
+count; `NumTests` (skeleton tests only) is used alone, matching the paper's
+original, honest basis. `additional_metrics()`'s `totalMBTests` column
+(this file's `get_total_mb_tests()` shim, summed over the *final* merged
+`mbList`) is more complete — it does pick up those promoted nodes — but
+still omits the spouse-detection tests themselves, so treat it as a lower
+bound, not an exact count, if you use it at all.
 
 **Resolved — `sparsebnUtils`/`discretecdAlgorithm` removed:** `R/data_gen.R`
 used to build its network/edge representation entirely on `sparsebnUtils`
