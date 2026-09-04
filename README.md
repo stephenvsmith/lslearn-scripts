@@ -1,13 +1,16 @@
 # lslearn-scripts
 
-Scripts for reproducing the simulation study in Smith & Zhou, ["Coordinated
-Multi-Neighborhood Learning on a Directed Acyclic Graph"](https://github.com/stephenvsmith/CML-Scripts)
-(JMLR, 2026), either locally or as SGE array jobs on
+Scripts for reproducing the simulation study in Smith & Zhou, "Coordinated
+Multi-Neighborhood Learning on a Directed Acyclic Graph" (JMLR, 2026),
+either locally or as SGE array jobs on
 [UCLA's Hoffman2 cluster](https://www.hoffman2.idre.ucla.edu). The algorithms
 themselves (CML, SNL) are implemented in the companion package
-[`stephenvsmith/CML`](https://github.com/stephenvsmith/CML); this repo only
-drives that package to generate data, run it against `bnlearn` reference
-networks, and score the results.
+[`stephenvsmith/lslearn`](https://github.com/stephenvsmith/lslearn) (a
+ground-up reimplementation that superseded the original `stephenvsmith/CML`
+package this repo was originally written against — see
+[Compatibility with `lslearn`](#compatibility-with-lslearn) below); this repo
+only drives that package to generate data, run it against `bnlearn`
+reference networks, and score the results.
 
 For each simulation setting, data is generated from a `bnlearn` reference
 network, then the global PC algorithm, Coordinated Multi-Neighborhood
@@ -28,6 +31,64 @@ builds the F1/SHD/PRA summaries and plots behind Figures 2–4 and 8.
 Chu et al. scRNA-seq cross-validation analysis) and the exact scripts behind
 Tables 1, 2, and 4 were not part of this repository's source material, so
 they aren't reproduced here.
+
+## Compatibility with `lslearn`
+
+`R/helperfunctions.R` was written against the original `CML` package and has
+been updated to run against `lslearn` (as of the `lslearn` `main` branch,
+2026-09-04). Status:
+
+**Works unchanged:** `cml()`, `snl()`, and `allMetrics()` — the functions
+that produce every skeleton/v-structure/parent-recovery/ancestor F1 number
+and SHD behind Figures 2–4 and 8 — kept compatible call signatures across
+the migration. No changes were needed at these call sites.
+
+**Patched locally:** `lslearn` renamed several functions this file called to
+snake_case and made them internal-only (`getNeighborhoodMetrics` was
+removed outright; `mbRecovery`, `mbRecoveryMetrics`, `getTotalMBTime`,
+`getTotalMBTests` became unexported `mb_recovery()`, `mb_recovery_metrics()`,
+`get_total_mb_time()`, `get_total_mb_tests()`; `check_neighbors_retrieval()`
+was removed). `helperfunctions.R`'s "lslearn Compatibility Shims" section
+ports these faithfully from `lslearn`'s own (unexported) source, and
+`get_nbhds()` now uses this file's own `find_all_neighbors()` instead of the
+removed C++ export. Also fixed: `lslearn::cml()` now separates skeleton CI
+tests (`NumTests`) from Markov Blanket estimation tests (`MBNumTests`),
+where `snl()`'s `NumTests` already includes both — `run_cml()` now sums them
+for CML so the "total CI tests" comparison across CML/SNL/PC (Figures 3a,
+7a) is on the same basis for all three. This also resolves a caveat the
+paper had to make in Section 4.1 ("we were unable to obtain these values"
+for Mb test counts) — `MBNumTests` is now available directly.
+
+**Not yet resolved — blocks fresh data generation:** `R/data_gen.R` builds
+its network/edge representation entirely on `sparsebnUtils`
+(`edgeList`/`get.adjacency.matrix`/`to_igraph`/`as.sparse`/`to_edgeList`)
+plus `discretecdAlgorithm` for the (currently unused) discrete-data branch.
+**Both packages were archived by CRAN on 2024-04-12** and no longer install
+via `install.packages()` — `sparsebnUtils` for unfixed issues, and
+`discretecdAlgorithm` because it requires `sparsebnUtils`. This is almost
+certainly why `lslearn` itself only depends on `bnlearn`/`MXM`/`Rcpp`/
+`RcppArmadillo` now. As written, `data_gen.R` cannot generate simulation
+data on a machine that doesn't already have these two packages installed
+from an old source (e.g. the CRAN archive, or a cached local library) — this
+is the actual blocker to a from-scratch reproduction, independent of
+anything above. Two ways forward, in rough order of effort:
+1. Pin the archived versions (e.g. `remotes::install_version("sparsebnUtils", "0.1.2")`
+   from the CRAN archive) as a stopgap — lowest effort, but not a durable fix.
+2. Rewrite `data_gen.R`'s graph plumbing on packages that remain available
+   (`bnlearn` — already a dependency — plus `igraph`, which is still
+   maintained and was the only non-archived package `sparsebnUtils` wrapped
+   for these calls). The `sparsebnUtils` calls here don't do anything
+   `bnlearn`/`igraph` can't: `edgeList`/`get.adjacency.matrix` is just a
+   parent-index list ↔ adjacency-matrix conversion, `to_igraph`/`to_edgeList`
+   round-trip through `igraph::graph_from_adjacency_matrix()`, and
+   `as.sparse()` is only used internally to attach randomly-generated
+   coefficients to edges in a self-consistent order — none of that requires
+   matching `sparsebnUtils`'s exact internal representation, just a fixed
+   convention on the R side.
+
+This hasn't been attempted here — it's a substantive rewrite of the data
+generation core, not a mechanical fix like the shims above, and is worth a
+design conversation before touching it.
 
 ## Notation
 
@@ -64,11 +125,14 @@ analysis/   Scripts for compiling and plotting results after a batch of
 
 ## Setup
 
-1. Install R (this project was developed against R 4.0.2) and the required
-   packages: `tidyverse`, `bnlearn`, `pcalg`, `sparsebnUtils`,
-   `discretecdAlgorithm`, `gRbase`, `igraph`, `parallel`, and
-   [`CML`](https://github.com/stephenvsmith/CML) (the package implementing
-   the CML/SNL algorithms — install it from source, it is not on CRAN).
+1. Install R 4.4+, a C++ compiler toolchain, and the GNU Scientific Library
+   (GSL) — required by `lslearn`. Then install the required packages:
+   `tidyverse`, `bnlearn`, `pcalg`, `parallel`, and
+   [`lslearn`](https://github.com/stephenvsmith/lslearn) itself (not yet on
+   CRAN — install with `pak::pak("stephenvsmith/lslearn")`). Also required
+   for `R/data_gen.R`, but **archived and no longer `install.packages()`-able**
+   — see [Compatibility with `lslearn`](#compatibility-with-lslearn) —
+   `sparsebnUtils` and `discretecdAlgorithm`.
 2. Download the 13 `bnlearn` reference networks used in the paper —
    `alarm`, `barley`, `insurance`, `arth150`, `andes`, `diabetes`, `link`,
    `mildew`, `hepar2`, `pigs`, `munin2`, `munin3`, `munin4` — from the

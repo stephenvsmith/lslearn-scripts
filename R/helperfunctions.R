@@ -2,7 +2,13 @@ library(tidyverse,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
 library(bnlearn,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
 library(pcalg,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
 library(parallel,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
-library(CML,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
+# The CML package was migrated to https://github.com/stephenvsmith/lslearn.
+# cml()/snl()/allMetrics() kept the same call signatures; a handful of other
+# functions this file used (getNeighborhoodMetrics, mbRecovery,
+# mbRecoveryMetrics, getTotalMBTime, getTotalMBTests, check_neighbors_retrieval)
+# were renamed and made internal-only, or removed outright -- see the
+# "lslearn Compatibility Shims" section below for replacements.
+library(lslearn,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
 
 # DAG Info -------------------------------------------------------------
 
@@ -312,7 +318,12 @@ run_cml <- function(t,df,num,results_pc,algo){
   diff <- end - start
   units(diff) <- "secs"
   results_pc$time_diff[["CML"]] <- diff
-  results_pc$num_tests[["CML"]] <- cml_result$NumTests
+  # lslearn's cml() reports skeleton tests (NumTests) and Markov Blanket
+  # estimation tests (MBNumTests) separately; snl()'s NumTests already
+  # includes its MB tests. Sum both here so cml/snl/pc are compared on the
+  # same "total CI tests used" basis (the old CML package couldn't
+  # separate these out, hence the caveat in the paper's Section 4.1).
+  results_pc$num_tests[["CML"]] <- cml_result$NumTests + cml_result$MBNumTests
   check_anc_edge_markings(cml_result$amat,
                           paste0(result_dir,"/anc_edge_errors.txt"),
                           array_num)
@@ -344,6 +355,112 @@ run_snl <- function(t,df,num,results_pc,algo){
   return(results)
 }
 
+# lslearn Compatibility Shims -----------------------------------------------
+# The functions below were exported by the old CML package and used
+# throughout this file. In lslearn they were renamed to snake_case and made
+# internal (@noRd), or (getNeighborhoodMetrics) removed entirely. Ported here
+# faithfully from lslearn's own (unexported) R/mb-estimation.R and
+# R/mb-metrics.R as of 2026-09, so the analysis pipeline below keeps working
+# against the public API. If lslearn re-exports these in the future, these
+# shims can be deleted and the call sites below reverted to the package
+# versions.
+
+# Was getNeighborhoodMetrics() (previously implemented in the package's
+# metrics.cpp). Reports the size of a neighborhood and its edge count
+# (skeleton, i.e. undirected/directed edges each counted once) for the
+# `size`/`num_edges` columns used throughout the results.
+get_neighborhood_metrics <- function(ground_narrow){
+  skel <- ((ground_narrow + t(ground_narrow)) > 0) * 1
+  data.frame(
+    size = nrow(ground_narrow),
+    num_edges = sum(skel) / 2
+  )
+}
+
+# lslearn R/mb-metrics.R: get_connections(), get_spouses(), spouse_recovery()
+get_connections <- function(g, target){
+  which(g[target, ] == 1 | g[, target] == 1)
+}
+
+get_spouses <- function(g, children, target){
+  sort(
+    unique(
+      unlist(
+        lapply(children, function(child) {
+          child_parents <- which(
+            g[, child] == 1 & g[child, ] == 0 &
+              g[target, ] == 0 & g[, target] == 0
+          )
+          setdiff(child_parents, target)
+        })
+      )
+    )
+  )
+}
+
+spouse_recovery <- function(g, target){
+  children <- which(g[target, ] == 1 & g[, target] == 0)
+  get_spouses(g, children, target)
+}
+
+# Was mbRecovery(): full Markov Blanket TP/FN/FP, summed across targets
+mb_recovery_target <- function(ref, est, target){
+  ref_nodes <- get_connections(ref, target)
+  est_nodes <- get_connections(est, target)
+  ref_nodes <- c(ref_nodes, spouse_recovery(ref, target))
+  c(
+    "mb_tp" = length(intersect(ref_nodes, est_nodes)),
+    "mb_fn" = length(setdiff(ref_nodes, est_nodes)),
+    "mb_fp" = length(setdiff(est_nodes, ref_nodes))
+  )
+}
+
+mb_recovery <- function(ref, est, targets){
+  recovery_list <- lapply(targets, function(t) mb_recovery_target(ref, est, t))
+  recovery_vec <- Reduce("+", recovery_list)
+  data.frame(t(recovery_vec))
+}
+
+# Was mbRecoveryMetrics(): MB recovery broken down by children/parents/spouses
+mb_recovery_metrics_list <- function(ref, est, targets){
+  lapply(targets, function(target) {
+    mb_nodes <- get_connections(est, target)
+    children <- which(ref[target, ] == 1 & ref[, target] == 0)
+    parents <- which(ref[, target] == 1 & ref[target, ] == 0)
+    spouses <- get_spouses(ref, children, target)
+    data.frame(
+      "mb_children_fn" = sum(!(children %in% mb_nodes)),
+      "mb_children_tp" = sum(children %in% mb_nodes),
+      "mb_parents_fn" = sum(!(parents %in% mb_nodes)),
+      "mb_parents_tp" = sum(parents %in% mb_nodes),
+      "mb_spouses_fn" = sum(!(spouses %in% mb_nodes)),
+      "mb_spouses_tp" = sum(spouses %in% mb_nodes),
+      "mb_total_fp" = sum(!(mb_nodes %in% c(children, parents, spouses)))
+    )
+  })
+}
+
+mb_recovery_metrics <- function(ref, est, targets){
+  metrics_list <- mb_recovery_metrics_list(ref, est, targets)
+  df <- as.data.frame(do.call(rbind, metrics_list))
+  if (nrow(df) == 1) {
+    df
+  } else {
+    df <- apply(df, 2, unlist)
+    data.frame(t(colSums(df)))
+  }
+}
+
+# Was getTotalMBTime()/getTotalMBTests(): operate on a cml()/snl() `mbList`,
+# a named list of get_mb()-style results each holding $time and $n_tests.
+get_total_mb_time <- function(mb_list){
+  sum(sapply(mb_list, function(mb) mb[["time"]]))
+}
+
+get_total_mb_tests <- function(mb_list){
+  sum(sapply(mb_list, function(mb) mb[["n_tests"]]))
+}
+
 create_target_directory <- function(t){
   go_to_dir(paste0("Target",ifelse(length(t)>1,"s",""),"=",paste(t,collapse = ",")))
   return()
@@ -353,13 +470,12 @@ create_target_directory <- function(t){
 # Result Functions --------------------------------------------------------
 
 get_nbhds <- function(t,local_result){
-  # Gather all the neighborhood nodes (true)
-  nbhd <- as.vector(sapply(t,function(targ){
-    check_neighbors_retrieval(network_info$p,network_info$node_names,
-                              network_info$true_dag,targ-1)+1
-  }))
+  # Gather all the neighborhood nodes (true). check_neighbors_retrieval() was
+  # a CML-package C++ export that no longer exists in lslearn; find_all_neighbors()
+  # (General Functions, below) computes the same parents/children/spouses
+  # union directly from the true DAG in R.
+  nbhd <- find_all_neighbors(t,network_info$true_dag)
   ### First, we look at the results using only the true neighborhoods (narrow)
-  if (is.list(nbhd)) nbhd <- unlist(nbhd)
   # Add the target to the neighborhood set
   nbhd <- sort(unique(c(t,nbhd)))
 
@@ -484,17 +600,17 @@ get_result_metrics <- function(targets,graphs,nbhds,method='cml'){
 additional_metrics <- function(graphs,local_result,pc_result,
                                targets,nbhds,method='cml'){
   if (method=='cml') {
-    ### General information about the neighborhood (metrics.cpp)
-    nbhd_metrics <- getNeighborhoodMetrics(graphs$ground_narrow)
+    ### General information about the neighborhood (see "lslearn Compatibility Shims")
+    nbhd_metrics <- get_neighborhood_metrics(graphs$ground_narrow)
     ### Markov Blanket Recovery metrics
-    # (mbEst.R) Markov Blanket Recovery TP, FN, FP
-    mb_metrics <- mbRecovery(network_info$cpdag,local_result$referenceDAG,targets)
+    # Markov Blanket Recovery TP, FN, FP
+    mb_metrics <- mb_recovery(network_info$cpdag,local_result$referenceDAG,targets)
     # MB children FN, TP; MB parents FN, TP; MB spouses FN, TP; MB Total FP
-    mb_metrics_add <- mbRecoveryMetrics(network_info$cpdag,
+    mb_metrics_add <- mb_recovery_metrics(network_info$cpdag,
                                         local_result$referenceDAG,targets)
     # Time and Tests given by MXM function
-    mb_time <- getTotalMBTime(local_result$mbList)
-    mb_tests <- getTotalMBTests(local_result$mbList)
+    mb_time <- get_total_mb_time(local_result$mbList)
+    mb_tests <- get_total_mb_tests(local_result$mbList)
 
     ### Statistics for the amount of times each FCI rule was used
     rule_usage <- t(data.frame(local_result$RulesUsed))
