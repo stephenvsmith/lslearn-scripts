@@ -1,4 +1,12 @@
-library(tidyverse,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
+# Only the tidyverse packages this file actually uses (dplyr, stringr,
+# readr) -- not the full tidyverse meta-package. This pipeline never calls
+# ggplot2 (that's only used by the analysis/ scripts, run off-cluster after
+# pulling results back), so it doesn't need ggplot2's ragg dependency,
+# which needs system font-rendering libraries (freetype/harfbuzz/fontconfig)
+# that often aren't available on HPC compute images.
+library(dplyr,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
+library(stringr,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
+library(readr,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
 library(bnlearn,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
 library(pcalg,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
 library(parallel,quietly=TRUE,verbose = FALSE,warn.conflicts = FALSE)
