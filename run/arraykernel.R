@@ -29,25 +29,46 @@ data.grid <- data.frame(network = "asia",
 go_to_dir(result_dir)
 ### Read the table containing each simulation setting
 sim_vals <- read.csv("sim_vals.csv",stringsAsFactors = FALSE)[,-1]
-# Remove any completed sims
-if(file.exists("completed_sims.txt")){
-  complete <- read.table("completed_sims.txt")[,1]
-} else {
-  complete <- c()
+
+### Claim an incomplete row atomically. Concurrent array tasks used to pick
+# a row via incomplete[min(array_num, length(incomplete))] -- once enough
+# tasks' own SGE_TASK_ID exceeded the (shrinking) incomplete count, every
+# one of them clamped to the SAME last element and silently duplicated
+# work (observed: 13 tasks all landing on one row once the fast n=500/1000
+# tier drained, corrupting each other's data files mid-write). dir.create()
+# is atomic even on a shared/NFS filesystem, unlike a file-existence check,
+# so claims/<row>/ existing is unambiguous proof someone already has that
+# row -- if our candidate is taken, re-read what's actually still
+# unclaimed and try again rather than trusting a single stale computation.
+claims_dir <- "claims"
+dir.check(claims_dir)
+
+claim_a_row <- function(preferred_index){
+  repeat {
+    complete <- if (file.exists("completed_sims.txt")) read.table("completed_sims.txt")[,1] else integer(0)
+    claimed <- suppressWarnings(as.integer(list.files(claims_dir)))
+    incomplete <- setdiff(seq_len(nrow(sim_vals)), c(complete, claimed))
+    if (length(incomplete) == 0) return(NA_integer_)
+
+    candidate <- incomplete[min(preferred_index, length(incomplete))]
+    if (dir.create(file.path(claims_dir, candidate), showWarnings = FALSE)) {
+      # Kept for hoffman/simprogress.sh's reporting; claims/ is now the
+      # actual source of truth for what's spoken for.
+      cat(candidate, file = "in_process_sims.txt", append = TRUE)
+      cat("\n", file = "in_process_sims.txt", append = TRUE)
+      return(candidate)
+    }
+    Sys.sleep(runif(1, 0.1, 1)) # someone else claimed it first -- retry fresh
+  }
 }
 
-if(file.exists("in_process_sims.txt")){
-  in_process <- read.table("in_process_sims.txt")[,1]
-} else {
-  in_process <- c()
+array_num <- claim_a_row(array_num)
+if (is.na(array_num)) {
+  cat("No incomplete settings remain; nothing to do.\n")
+  quit(save = "no", status = 0)
 }
-
-incomplete <- setdiff(seq(1,nrow(sim_vals)),c(complete,in_process))
-array_num <- incomplete[min(array_num,length(incomplete))]
 
 cat("Array Number (System):",array_num,"\n\n")
-cat(array_num,file = "in_process_sims.txt",append = TRUE)
-cat("\n",file = "in_process_sims.txt",append = TRUE)
 
 ### Save the settings for this simulation run
 alpha <- sim_vals$alpha[array_num]

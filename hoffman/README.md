@@ -87,6 +87,55 @@ repos) installs and `library(lslearn)` loads cleanly.
    `hoffman/run_array.R`, which wires up `run/arraykernel.R` for that task.
 5. Use `hoffman/simprogress.sh` to check on progress while jobs run.
 
+## Row-collision bug (fixed) and how to recover from it
+
+Earlier versions of `run/arraykernel.R` picked each task's row via
+`incomplete[min(array_num, length(incomplete))]`, using the raw
+`SGE_TASK_ID` as a positional index into the shrinking list of incomplete
+settings. `sim_vals.csv` is ordered with `n` varying slowest (all `n=500`
+rows first, then `n=1000`, then `n=10000`), and the smaller-`n` settings
+finish fast — so the incomplete pool quickly shrinks to roughly the size of
+just the `n=10000` tier. **Once the incomplete count drops below a task's
+own `SGE_TASK_ID` — true for the entire back half of a large array as soon
+as the fast tier drains — every such task's `min()` clamps to the exact
+same index**, so they all silently claim the *same* row and corrupt each
+other's data files mid-write. This isn't a rare race; it was observed
+corrupting 13 concurrent tasks on one row in a single run.
+
+`run/arraykernel.R` now claims a row via `dir.create()` on a
+`claims/<row>/` marker directory, which is atomic even on this shared
+filesystem: if the directory already exists, another task has that row,
+and the claiming task re-reads what's actually still incomplete and tries
+again rather than trusting a stale computation. `claims/` (not
+`in_process_sims.txt`, which is now written only for
+`hoffman/simprogress.sh`'s reporting) is the authoritative record of what's
+spoken for.
+
+**If you already ran the old logic and suspect collisions** (check
+`logs/joblog.*` for `Error in scan(...)`/`read.table(...)` — a classic
+symptom of reading a file another task is still writing; cross-reference
+which rows multiple tasks claimed via `grep -l "Array Number (System): N "
+logs/joblog.*` for a given row `N`), clean up before resubmitting:
+```bash
+Rscript hoffman/cleanup_incomplete.R "$SCRATCH/ResultsSample-<mm-yy>"
+```
+This removes the `data/` directory and any partial per-trial
+`results_<row>_<num>.rds` caches for every row not yet in
+`completed_sims.txt`, so the next submission regenerates them cleanly.
+Stale `in_process_sims.txt` entries from the old logic don't need editing —
+the new code doesn't consult that file for row selection at all, only
+`completed_sims.txt` and the `claims/` directory listing (which won't exist
+yet on your first run under the new code, so every incomplete row is
+immediately available).
+
+**Genuine future stragglers** (a task claims a row, then gets killed by
+`h_rt`/`h_data` before finishing) now show up as an orphaned
+`claims/<row>/` directory with no matching entry in `completed_sims.txt`.
+Free it for retry by removing that specific directory:
+```bash
+rmdir "$SCRATCH/ResultsSample-<mm-yy>/claims/<row>"
+```
+
 ## `hoffman/submit/legacy/`
 
 The scripts in `submit/legacy/` are the original per-algorithm Hoffman job
