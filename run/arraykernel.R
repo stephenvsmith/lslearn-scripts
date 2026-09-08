@@ -41,7 +41,17 @@ sim_vals <- read.csv("sim_vals.csv",stringsAsFactors = FALSE)[,-1]
 # row -- if our candidate is taken, re-read what's actually still
 # unclaimed and try again rather than trusting a single stale computation.
 claims_dir <- "claims"
-dir.check(claims_dir)
+# NOT dir.check(claims_dir): dir.check() (data_gen.R) always builds an
+# ABSOLUTE path internally (paste0(c('', folders), collapse='/') prepends a
+# leading "/"), so a relative name like "claims" silently tries to create
+# "/claims" at the filesystem root instead -- fails on permissions, doesn't
+# error (the failure isn't checked), and every claim_a_row() dir.create()
+# below then fails forever since its parent was never actually created
+# (confirmed: every task spun in the retry loop for 3+ hours, ~30s of
+# actual CPU time each -- all Sys.sleep(), no progress). Every existing
+# dir.check() call elsewhere happens to already use absolute paths, so this
+# was latent until this new relative-path use.
+dir.create(claims_dir, showWarnings = FALSE)
 
 claim_a_row <- function(preferred_index){
   repeat {
