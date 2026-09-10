@@ -194,3 +194,10 @@ unlink(paste0("pc_",array_num,"_tests.txt"))
 
 cat(array_num,file = "completed_sims.txt",append = TRUE)
 cat("\n",file = "completed_sims.txt",append = TRUE)
+
+# Release this row's claim now that it's genuinely done. claims/<row>
+# markers are otherwise never removed on their own (a task killed by
+# h_rt/h_data can't clean up after itself), so leaving a successful one
+# around too just adds noise; only crashed/orphaned claims should persist
+# for hoffman/cleanup_incomplete.R to find.
+unlink(file.path(claims_dir, as.character(array_num)), recursive = TRUE)
