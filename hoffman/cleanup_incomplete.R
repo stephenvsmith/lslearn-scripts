@@ -1,15 +1,23 @@
-### One-off (and reusable) cleanup for a results directory after the
-### array_num collision bug that run/arraykernel.R used to have (multiple
-### concurrent array tasks silently landing on the same sim_vals.csv row
-### once the incomplete pool shrank past their own SGE_TASK_ID, corrupting
-### each other's data files mid-write -- see hoffman/README.md).
+### One-off (and reusable) cleanup for a results directory. Handles two
+### situations: (1) the historical array_num collision bug (multiple
+### concurrent array tasks landing on the same sim_vals.csv row, corrupting
+### each other's data files mid-write -- fixed in run/arraykernel.R, see
+### hoffman/README.md), and (2) the ordinary case of a task hitting its
+### h_rt/h_data limit and getting killed mid-run.
 ###
 ### For every row not yet in completed_sims.txt, removes its data/<net>_<row>
-### directory (may be partially/corruptly written) and any partial
-### per-trial results_<row>_<num>.rds caches (may have been computed from
-### data a colliding task later overwrote), so a fresh submission
-### regenerates everything cleanly. Safe to re-run any time; a no-op for
-### rows with nothing to clean.
+### directory (may be partially/corruptly written) so a fresh submission
+### regenerates it cleanly. Deliberately does NOT remove per-trial
+### results_<row>_<num>.rds caches: data generation is fully deterministic
+### (seeded by array_num and trial number), so regenerating data/ reproduces
+### byte-identical input regardless of what happened before -- a cached
+### trial result is either still valid against that data, or (if it was
+### itself truncated by a kill signal mid-saveRDS()) readRDS() will fail
+### loudly the next time run/arraykernel.R tries to reuse it, rather than
+### silently returning wrong output. Keeping these caches means a row
+### killed partway through its 3 trials only redoes the trial(s) that
+### didn't finish, not all 3. Safe to re-run any time; a no-op for rows
+### with nothing to clean.
 ###
 ### Usage: Rscript hoffman/cleanup_incomplete.R <result_dir>
 ### e.g.:  Rscript hoffman/cleanup_incomplete.R "$SCRATCH/ResultsSample-09-26"
@@ -26,7 +34,6 @@ cat("Total settings:", nrow(sim_vals), " complete:", length(complete),
     " needing cleanup/regeneration:", length(incomplete), "\n")
 
 removed_data <- 0
-removed_results <- 0
 for (row in incomplete) {
   net <- sim_vals$net[row]
   data_dir <- file.path("data", paste0(net, "_", row))
@@ -34,16 +41,12 @@ for (row in incomplete) {
     unlink(data_dir, recursive = TRUE)
     removed_data <- removed_data + 1
   }
-  partials <- Sys.glob(paste0("results_", row, "_*.rds"))
-  if (length(partials) > 0) {
-    unlink(partials)
-    removed_results <- removed_results + length(partials)
-  }
   final_res <- paste0("results_", row, ".rds")
   if (file.exists(final_res)) unlink(final_res) # shouldn't exist if not in completed_sims.txt, but be safe
 }
 
-cat("Removed", removed_data, "data directories and", removed_results, "partial results files.\n")
+cat("Removed", removed_data, "data directories (per-trial results_<row>_<num>.rds",
+    "caches left in place -- see the header comment above for why).\n")
 cat("Safe to resubmit now: the fixed run/arraykernel.R claims rows atomically\n",
     "via a claims/ directory, so stale in_process_sims.txt entries from the\n",
     "old logic are simply ignored for row selection.\n")
