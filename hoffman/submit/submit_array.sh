@@ -1,4 +1,6 @@
 #!/bin/bash
+### LEGACY: Grid Engine version for the old CentOS 7 cluster. Hoffman2 moved
+### to Slurm in Nov 2026; use submit_array.slurm instead.
 #$ -cwd
 # error = Merged with joblog
 #$ -o ./logs/joblog.$JOB_ID.$TASK_ID

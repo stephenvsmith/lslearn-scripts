@@ -6,10 +6,10 @@
 
 RESULTS_DIR="${1:-${SCRATCH}/${LSLEARN_RESULTS_NAME:-ResultsSample-$(date +%m-%y)}}"
 
-jobs_done="$(myjobs | grep -o '[0-9]*-[0-9]*:1' | grep -P '^\d+' -o)"
-jobs_done=$((jobs_done-1))
-
-jobs_to_do="$(myjobs | grep -o '[0-9]*-[0-9]*:1' | grep -P '\d+:' -o | sed 's/.$//')"
+# --array lists every pending array task on its own line rather than as one
+# collapsed range (e.g. 12345_[40-351]), so wc -l counts tasks.
+running="$(squeue --me --noheader --states=RUNNING --format=%i | wc -l)"
+pending="$(squeue --me --noheader --states=PENDING --array --format=%i | wc -l)"
 
 now="$(date +%r)"
 current_date="$(date +%m-%d-%Y)"
@@ -36,6 +36,6 @@ AUTHOR: $(whoami)
 
 RESEARCH SIMULATION UPDATE
 
-At the current time, we have ${jobs_done} simulations out of the submitted ${jobs_to_do} either running or already run.
+At the current time, ${running} array tasks are running and ${pending} are waiting to start.
 Of those, ${total_completed} are completely finished. For each simulation job, we run three datasets. For the jobs which have run, ${total_one_completed} have finished one dataset, and ${total_two_completed} have finished two datasets.
 EOF

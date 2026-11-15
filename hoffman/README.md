@@ -3,7 +3,38 @@
 This directory holds everything needed to run the simulation study as SGE
 array jobs on [UCLA's Hoffman2 cluster](https://www.hoffman2.idre.ucla.edu).
 
-## Environment setup (one-time, verified working)
+## Slurm migration (November 2026)
+
+Hoffman2 moved from CentOS 7 / Grid Engine to Rocky Linux 9 / Slurm in
+November 2026. Log in at `hoffman2.oarc.ucla.edu`. The Grid Engine notes
+further down describe the legacy cluster; on the new one:
+
+| Grid Engine | Slurm |
+|---|---|
+| `qrsh -l h_rt=1:00:00,h_data=4G` | `srun --time=1:00:00 --mem=4G --pty bash -l` |
+| `qsub submit/submit_array.sh` | `sbatch submit/submit_array.slurm` |
+| `myjobs` / `qstat` | `squeue --me` |
+| `qdel <id>` | `scancel <id>` |
+| `-l highp` | `--qos=highp` (only if your group has nodes on the Slurm cluster) |
+| `$SGE_TASK_ID` | `$SLURM_ARRAY_TASK_ID` |
+
+- **Jobs need a Slurm account:** `--account=pi_<PI's username>`.
+- **Time limits:** 24 hours on shared nodes; 14 days with `--qos=highp`.
+- **Rebuild the R library.** Home and scratch are shared with the legacy
+  cluster, but packages compiled on CentOS 7 won't load on Rocky Linux 9.
+  `submit_array.slurm` uses a separate library at `~/R/rocky9-library`, so
+  the legacy one keeps working. The module versions below (`gcc/10.2.0`,
+  `R/4.4.1`, ...) are from the legacy cluster; check what exists now with
+  `module spider R`.
+- **Start job scripts with `module purge`.** The default login environment
+  loads an Intel compiler module that conflicts with many applications.
+- **`#SBATCH` lines don't expand variables**, and Slurm won't create the
+  `--output` directory, so `mkdir -p logs` before submitting.
+
+See IDRE's [Computing with Slurm](https://www.hoffman2.idre.ucla.edu/Using-H2/Computing/Computing-Slurm.html)
+page for details.
+
+## Environment setup (legacy Grid Engine cluster)
 
 `lslearn`'s full dependency chain (`igraph`, `pcalg` + Bioconductor `graph`/
 `RBGL`, `MXM` + `Rfast`/`Rfast2`/`energy`/`nloptr`/`lme4`/`bigmemory`, and
