@@ -5,8 +5,7 @@
 ###
 ### Before submitting:
 ###   1. Check --account below (pi_<PI's username>; see `sacctmgr show assoc user=$USER`).
-###   2. Set R_MODULE below to an R module that exists on the new cluster
-###      (`module spider R`), the one your R library was built with.
+###   2. Check R_MODULE below is the module your R library was built with.
 ###   3. Run run/initialize.R with the same LSLEARN_RESULTS_NAME.
 ###   4. mkdir -p logs   (Slurm won't create the --output directory; tasks
 ###      fail immediately without it)
@@ -29,7 +28,7 @@
 ##SBATCH --mail-user=CHANGEME@mail
 ##SBATCH --mail-type=END,FAIL
 
-R_MODULE="R/CHANGEME"
+R_MODULE="R/4.4.1"
 
 echo "Job ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} started on: $(hostname -s) $(date)"
 
@@ -38,9 +37,9 @@ echo "Job ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} started on: $(hostname -s
 module purge
 module load "${R_MODULE}"
 
-# Separate library from the one built on the legacy CentOS 7 cluster; its
-# compiled packages won't load on Rocky Linux 9.
-export R_LIBS_USER="${HOME}/R/rocky9-library"
+# The R module sets R_LIBS_USER to a library for this exact build
+# (~/R/4.4.1/gcc-11.4.1_intel-2024.1.0), separate from the legacy cluster's
+# ~/R/library, whose compiled packages won't load on Rocky Linux 9.
 
 REPO_DIR="${HOME}/lslearn-scripts"
 

@@ -22,10 +22,11 @@ further down describe the legacy cluster; on the new one:
 - **Time limits:** 24 hours on shared nodes; 14 days with `--qos=highp`.
 - **Rebuild the R library.** Home and scratch are shared with the legacy
   cluster, but packages compiled on CentOS 7 won't load on Rocky Linux 9.
-  `submit_array.slurm` uses a separate library at `~/R/rocky9-library`, so
-  the legacy one keeps working. The module versions below (`gcc/10.2.0`,
-  `R/4.4.1`, ...) are from the legacy cluster; check what exists now with
-  `module spider R`.
+  The new cluster's `R/4.4.1` module (built with the system gcc 11.4.1)
+  sets `R_LIBS_USER` to its own library, `~/R/4.4.1/gcc-11.4.1_intel-2024.1.0`,
+  so remove any `R_LIBS_USER` line left in `~/.Renviron` from the legacy
+  setup. The `gcc`, `gsl` and `nlopt` modules below don't exist on the new
+  cluster; only `cmake` does.
 - **Start job scripts with `module purge`.** The default login environment
   loads an Intel compiler module that conflicts with many applications.
 - **`#SBATCH` lines don't expand variables**, and Slurm won't create the
