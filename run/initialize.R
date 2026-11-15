@@ -9,7 +9,10 @@ if (file.exists("config/config.R")) source("config/config.R")
 
 # File which generates the data
 data_gen_file <- file.path(home_dir, "R/data_gen.R")
-result_dir <- file.path(scratch_dir, paste0("ResultsSample-", format(Sys.Date(), "%m-%y")))
+# Set LSLEARN_RESULTS_NAME to give a run a fixed directory name; it must
+# match what the array jobs use (see hoffman/submit/submit_array.sh).
+result_dir <- file.path(scratch_dir, Sys.getenv("LSLEARN_RESULTS_NAME",
+                                                paste0("ResultsSample-", format(Sys.Date(), "%m-%y"))))
 # Directory where bnlearn RDS files are stored
 rds_dir <- file.path(home_dir, "networks/rds")
 

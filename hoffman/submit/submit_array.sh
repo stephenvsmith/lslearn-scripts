@@ -9,8 +9,9 @@
 #$ -pe shared 1
 # Email address to notify
 #$ -M $USER@mail
-## Number of tasks should match the number of rows in sim_vals.csv
-#$ -t 1-100:1
+## Number of tasks should match the number of rows in sim_vals.csv (351 for
+## the full grid in run/initializekernel.R)
+#$ -t 1-351:1
 
 # echo job info on joblog:
 echo "Job $JOB_ID.$SGE_TASK_ID started on:   " $(hostname -s)
@@ -49,6 +50,12 @@ export F77=/u/local/compilers/gcc/10.2.0/bin/gfortran
 # Code belongs in $HOME (persistent, backed up), not $SCRATCH (purged after
 # 14 days) -- see hoffman/README.md.
 REPO_DIR="${HOME}/lslearn-scripts"
+
+# Results directory name under $SCRATCH. Must match the LSLEARN_RESULTS_NAME
+# used when running run/initialize.R. Override per run with
+#   qsub -v LSLEARN_RESULTS_NAME=<name> hoffman/submit/submit_array.sh
+export LSLEARN_RESULTS_NAME="${LSLEARN_RESULTS_NAME:-ResultsFullTargets}"
+echo "Results directory: ${SCRATCH}/${LSLEARN_RESULTS_NAME}"
 
 echo "Rscript ${REPO_DIR}/hoffman/run_array.R ${SGE_TASK_ID} ${REPO_DIR}"
 Rscript "${REPO_DIR}/hoffman/run_array.R" "${SGE_TASK_ID}" "${REPO_DIR}"

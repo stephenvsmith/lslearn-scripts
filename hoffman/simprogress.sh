@@ -1,9 +1,10 @@
 #!/usr/bin/bash
 ### Reports progress of the current batch of Hoffman2 array-job simulations.
 ### Usage: simprogress.sh [results_dir]
-### results_dir defaults to $SCRATCH/ResultsSample-<current month-year>
+### results_dir defaults to $SCRATCH/$LSLEARN_RESULTS_NAME, or
+### $SCRATCH/ResultsSample-<current month-year> if that is unset
 
-RESULTS_DIR="${1:-${SCRATCH}/ResultsSample-$(date +%m-%y)}"
+RESULTS_DIR="${1:-${SCRATCH}/${LSLEARN_RESULTS_NAME:-ResultsSample-$(date +%m-%y)}}"
 
 jobs_done="$(myjobs | grep -o '[0-9]*-[0-9]*:1' | grep -P '^\d+' -o)"
 jobs_done=$((jobs_done-1))
