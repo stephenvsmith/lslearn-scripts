@@ -9,14 +9,16 @@
 ###   3. Run run/initialize.R with the same LSLEARN_RESULTS_NAME.
 ###   4. mkdir -p logs   (Slurm won't create the --output directory; tasks
 ###      fail immediately without it)
-### Submit from the repository root:
+### Submit from the repository root. As written, tasks run on the shared pool
+### (pi_shared, 24-hour limit). To run on the group's own node instead (up to
+### 14 days), add highp on the command line:
 ###   sbatch hoffman/submit/submit_array.slurm
+###   sbatch --qos=highp --time=7-00:00:00 hoffman/submit/submit_array.slurm
+### Both can run at once on the same results directory: each task atomically
+### claims its own row (see run/arraykernel.R).
 #SBATCH --job-name=lslearn
 #SBATCH --account=pi_qingzhou
-## highp runs on the group's own nodes (up to 14 days). Comment it out to
-## use shared nodes instead, and lower --time to 24:00:00 or less.
-#SBATCH --qos=highp
-#SBATCH --time=7-00:00:00
+#SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=2G
